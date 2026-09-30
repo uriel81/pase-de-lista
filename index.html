@@ -1,0 +1,54 @@
+const HOJA_ALUMNOS = 'Alumnos';
+const HOJA_ASISTENCIA = 'Asistencia';
+const ZONA = 'America/Mexico_City';
+
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('Pase de lista')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function normalizar_(codigo) {
+  return String(codigo).trim().padStart(2, '0');
+}
+
+// Paso 1: busca el código y devuelve el nombre para confirmar
+function buscarAlumno(codigo) {
+  codigo = normalizar_(codigo);
+  const hoja = SpreadsheetApp.getActive().getSheetByName(HOJA_ALUMNOS);
+  const datos = hoja.getDataRange().getDisplayValues();
+  for (let i = 1; i < datos.length; i++) {
+    if (normalizar_(datos[i][0]) === codigo) {
+      return { ok: true, codigo: codigo, nombre: datos[i][1], grupo: datos[i][2] };
+    }
+  }
+  return { ok: false, mensaje: 'Código no encontrado.' };
+}
+
+// Paso 2: solo se llama si el alumno pulsó "Sí, confirmar"
+function registrarAsistencia(codigo) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const alumno = buscarAlumno(codigo);
+    if (!alumno.ok) return alumno;
+
+    const hoja = SpreadsheetApp.getActive().getSheetByName(HOJA_ASISTENCIA);
+    const ahora = new Date();
+    const fecha = Utilities.formatDate(ahora, ZONA, 'dd/MM/yyyy');
+    const hora = Utilities.formatDate(ahora, ZONA, 'HH:mm:ss');
+
+    // Evita duplicados el mismo día
+    const datos = hoja.getDataRange().getDisplayValues();
+    for (let i = 1; i < datos.length; i++) {
+      if (datos[i][0] === fecha && normalizar_(datos[i][2]) === alumno.codigo) {
+        return { ok: false, mensaje: 'Ya registraste tu asistencia hoy a las ' + datos[i][1] + '.' };
+      }
+    }
+
+    hoja.appendRow([fecha, hora, alumno.codigo, alumno.nombre, alumno.grupo, 'Presente']);
+    return { ok: true, mensaje: 'Asistencia registrada: ' + alumno.nombre + ' — ' + fecha + ' ' + hora };
+  } finally {
+    lock.releaseLock();
+  }
+}
